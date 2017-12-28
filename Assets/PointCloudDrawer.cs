@@ -29,7 +29,7 @@ public class PointCloudDrawer : MonoBehaviour
     {
         return new CameraIntrinsics
         (
-            width: 640,
+            width: 752,
             height: 480,
             fx: 458.654f,
             fy: 457.296f,
