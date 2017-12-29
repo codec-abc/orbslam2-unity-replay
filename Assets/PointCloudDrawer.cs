@@ -23,13 +23,13 @@ public class PointCloudDrawer : MonoBehaviour
 
     private const float near_plane = 0.01f;
     private const float far_plane = 200f;
-    private const float sphere_size = 0.05f;
+    private const float sphere_size = 0.02f;
 
     private static CameraIntrinsics GetIntrinsics()
     {
         return new CameraIntrinsics
         (
-            width: 640,
+            width: 752,
             height: 480,
             fx: 458.654f,
             fy: 457.296f,
@@ -50,11 +50,12 @@ public class PointCloudDrawer : MonoBehaviour
         };
     }
 
-
     Matrix4x4 invertYM = 
         Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, -1, 1));
 
     private GameObject _root;
+
+    private bool _bypassUpdate = false;
 
     void Start()
     {
@@ -162,7 +163,7 @@ public class PointCloudDrawer : MonoBehaviour
             var obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             obj.transform.parent = _root.transform;
             var m = Matrix4x4.TRS(a_pos, Quaternion.identity, Vector3.one);
-            var new_mat = invertYM * m * invertYM;
+            var new_mat = ChangeReferenceOfMatrix(m);
             var pos_4 = new_mat.GetColumn(3);
             var new_pos = new Vector3(pos_4.x, pos_4.y, pos_4.z);
             obj.transform.position = new_pos;
@@ -252,40 +253,52 @@ public class PointCloudDrawer : MonoBehaviour
 
         return mat.transpose;
     }
+
+    public Matrix4x4 ChangeReferenceOfMatrix(Matrix4x4 m)
+    {
+        var a = invertYM;
+        var b = a.inverse;
+        return b * m * a;
+    }
     
     void Update()
     {
-        var current_index = dict.Keys.ToArray()[current_frame];
-        var m2 = dict[current_index];
-
-        var m3 = (invertYM * m2) * invertYM;
-
-        var m = m3.inverse;
-
-        Vector3 t = m.GetColumn(3);
-
-        Quaternion q =
-            Quaternion.LookRotation(
-                 m.GetColumn(2),
-                 m.GetColumn(1)
-            );
-
-        _camera.transform.position = t;
-        _camera.transform.rotation = q;
-
-        CameraIntrinsics intrinsics = GetIntrinsics();
-
-        var mat = BuildProjMatrixFromIntrinsics(intrinsics, near_plane, far_plane);
-
-        _camera.projectionMatrix = mat;
-
-        _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
-        _texture2D.Apply();
-
-        if (Time.frameCount % 3 == 0)
+        if (!_bypassUpdate)
         {
-            current_frame++;
-            current_frame = current_frame % dict.Keys.Count;
+            var current_index = dict.Keys.ToArray()[current_frame];
+            var m2 = dict[current_index];
+
+            var m3 = ChangeReferenceOfMatrix(m2);
+
+            var m = m3.inverse;
+
+            Vector3 t = m.GetColumn(3);
+
+            Quaternion q =
+                Quaternion.LookRotation(
+                     m.GetColumn(2),
+                     m.GetColumn(1)
+                );
+
+            _camera.transform.position = t;
+            _camera.transform.rotation = q;
+
+            CameraIntrinsics intrinsics = GetIntrinsics();
+
+            var mat = BuildProjMatrixFromIntrinsics(intrinsics, near_plane, far_plane);
+
+            _camera.projectionMatrix = mat;
+
+            _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
+            _texture2D.Apply();
+
+            if (Time.frameCount % 3 == 0)
+            {
+                current_frame++;
+                current_frame = current_frame % dict.Keys.Count;
+            }
+
+            //Debug.LogWarning("current_frame " + current_frame);
         }
     }
 
