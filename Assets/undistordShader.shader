@@ -99,8 +99,8 @@
 					y_p * kp +
 					2.0f * _P2 * x_p * y_p + _P1 * (r2 + 2.0f * y_p * y_p);
 
-				float map_x = x_pp * _Fx + cx + 2.0f * (cx - _Width / 2.0f);
-				float map_y = y_pp * _Fy + cy;
+				float map_x = x_pp * _Fx + cx;// +2.0f * (cx - _Width / 2.0f);
+				float map_y = y_pp * _Fy + cy;// +1.0f * (cy - _Height / 2.0f);
 
 				float2 new_uv = float2(map_x / _Width, map_y / _Height);
 

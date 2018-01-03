@@ -33,3 +33,13 @@ sysinfo.txt
 # Builds
 *.apk
 *.unitypackage
+
+Assets/StreamingAssets/ORBvoc.txt
+Assets/StreamingAssets/ORBvoc.txt.meta
+
+*.exp
+*.ilk
+*.lib
+
+Assets/OpenCVForUnity/
+Assets/OpenCVForUnity.meta
