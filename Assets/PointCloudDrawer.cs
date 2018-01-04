@@ -1,5 +1,5 @@
-﻿#define USE_RECORDED_DATA
-#define USE_MACHINE_HALL
+﻿//#define USE_RECORDED_DATA
+//#define USE_MACHINE_HALL
 
 using OpenCVForUnity;
 using OpenCVForUnityExample;
@@ -20,10 +20,12 @@ public class PointCloudDrawer : MonoBehaviour
     [SerializeField]
     private string directory_to_png;
 
-    private int current_frame = 420;
+    private int current_frame = 0;
 
     private Texture2D _texture2D;
-    private Dictionary<long, Matrix4x4> dict = new Dictionary<long, Matrix4x4>();
+    private Dictionary<long, Matrix4x4> dict = 
+        new Dictionary<long, Matrix4x4>();
+
     private List<string> _images;
     private GameObject _backgroundMesh;
 
@@ -144,7 +146,8 @@ public class PointCloudDrawer : MonoBehaviour
     private MatOfDouble _distCoeffs;
 
 #if !USE_RECORDED_DATA
-    private IntPtr _slamSystem;
+    private IntPtr _slamSystem = IntPtr.Zero;
+    private IntPtr _vocabFile;
     private float[] _matrix = new float[16];
     private byte[] _fixed_buffer2;
     private byte[] _fixed_buffer;
@@ -160,22 +163,24 @@ public class PointCloudDrawer : MonoBehaviour
         var intrin = GetIntrinsics();
         _width = intrin.Width;
         _height = intrin.Height;
+
 #if USE_RECORDED_DATA
         CreatePointCloud();
         RetrivePoses();
 #endif
         GetPngs();
         InitAruco();
+        ApplyProjectionMatrix();
+
 #if !USE_RECORDED_DATA
         CreateSlamSystem();
         File.Delete(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt");
-#endif
-        ApplyProjectionMatrix();
-
+#else
         //var go = GameObject.Find("Cube");
 
         Matrix4x4 trs = GetSlamToArucoMatrix();
         ARUtils.SetTransformFromMatrix(_root.transform, ref trs);
+#endif
     }
 
     /// By hand result
@@ -259,17 +264,18 @@ public class PointCloudDrawer : MonoBehaviour
         var handle1 = GCHandle.Alloc(vocalFilesPathsAsBytes);
         var handle2 = GCHandle.Alloc(cameraConfigFiles);
 
-        var isDisplayingWindow = true;
+        var isDisplayingWindow = false;
+
         byte displayWindowAsByte =
             isDisplayingWindow ?
                 (byte)1 :
                 (byte)0;
 
-        var vocabFile = SlamWrapper.read_vocab_file(ref vocalFilesPathsAsBytes[0]);
+        _vocabFile = SlamWrapper.read_vocab_file(ref vocalFilesPathsAsBytes[0]);
 
         _slamSystem =
             SlamWrapper.create_SLAM_system(
-                vocabFile,
+                _vocabFile,
                 ref cameraConfigFiles[0],
                 displayWindowAsByte
         );
@@ -522,6 +528,10 @@ public class PointCloudDrawer : MonoBehaviour
     {
 #if !USE_RECORDED_DATA
         SlamWrapper.shutdown_slam_system(_slamSystem);
+        if (_vocabFile.ToInt64() != 0)
+        {
+            SlamWrapper.delete_pointer(_vocabFile);
+        }
 #endif
     }
 
@@ -534,44 +544,21 @@ public class PointCloudDrawer : MonoBehaviour
             _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
             _texture2D.Apply();
 
+            Mat rgbMat = new Mat((int)_height, (int)_width, CvType.CV_8UC3);
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+            Utils.texture2DToMat(_texture2D, rgbMat);
+            //Debug.LogWarning("elapsed time for texture conversion is " + stopwatch.ElapsedMilliseconds + " ms");
+
+
 #if !USE_RECORDED_DATA
-            var textureBuffer = _texture2D.GetRawTextureData();
-            for (int i = 0; i < _buffer_length; i++)
-            {
-                if (i % 4 != 3)
-                {
-                    var offset = i % 4;
-                    var new_index = (i / 4) * 3 + offset;
-                    var j = _new_buffer_length - 1 - new_index;
-                    _fixed_buffer2[j] = textureBuffer[i];
-                }
-            }
-
-            var index = 0;
-
-            for (int j = 0; j < _height; j++)
-            {
-                for (int i = 0; i < _width; i++)
-                {
-                    var swap = j * _width * 3 + (_width - 1 - i) * 3;
-                    for (int channel = 0; channel < 3; channel++)
-                    {
-                        var new_index = swap + channel;
-
-                        if (new_index < 0 || new_index >= _fixed_buffer2.Length)
-                        {
-                            Debug.LogError("new_index=" + new_index + " i=" + i + " j=" + j + " channel=" + channel);
-                        }
-
-                        _fixed_buffer[index] = _fixed_buffer2[new_index];
-                        index++;
-                    }
-                }
-            }
+            var current_index = current_frame;
+            //convertTextureToOpenCVMat();
 
             IntPtr pose = SlamWrapper.update_image(
                             _slamSystem,
-                            _pointer,
+                            new IntPtr(rgbMat.dataAddr()),
+                            //_pointer,
                             (int)_width,
                             (int)_height,
                             Time.timeSinceLevelLoad
@@ -591,7 +578,7 @@ public class PointCloudDrawer : MonoBehaviour
                 maybe_slam_matrix = maybe_slam_matrix.transpose;
 
                 File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
-                        "" + current_frame + " pose is \n[" + m2.ToString() + "]\n"
+                        "" + current_frame + " pose is \n[" + maybe_slam_matrix.ToString() + "]\n"
                     );
 
                 if (current_frame == 665)
@@ -651,20 +638,22 @@ public class PointCloudDrawer : MonoBehaviour
             }
 
             Matrix4x4 aruco_matrix;
-            var hasDetected = ArucoDetection(_texture2D, out aruco_matrix);
+
+            var hasDetected = ArucoDetection(rgbMat, out aruco_matrix);
             if (hasDetected)
             {
                 //ApplyPoseMatrix(aruco_matrix);
 
                 // pick good frame to compute relative matrix;
-                if (current_frame == 423)
-                {
-                    // TODO
-                    //var scaleFactor = 0.6121542f;
-                    var scaleFactor = 0.6558151126f;
-                    var slam_matrix = ToUnityFrame(dict[current_index]);
-                    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
-                }
+
+                //if (current_frame == 423)
+                //{
+                //    // TODO
+                //    //var scaleFactor = 0.6121542f;
+                //    var scaleFactor = 0.6558151126f;
+                //    var slam_matrix = ToUnityFrame(dict[current_index]);
+                //    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
+                //}
 
                 if (is_slam_matrix_set)
                 {
@@ -683,7 +672,7 @@ public class PointCloudDrawer : MonoBehaviour
             }
         }
 
-        TryComputeScaleFactor();
+        //TryComputeScaleFactor();
 
         if (Time.frameCount % 1 == 0)
         {
@@ -701,6 +690,44 @@ public class PointCloudDrawer : MonoBehaviour
             }
 #endif
 #endif
+        }
+    }
+
+    private void convertTextureToOpenCVMat()
+    {
+        var textureBuffer = _texture2D.GetRawTextureData();
+
+        for (int i = 0; i < _buffer_length; i++)
+        {
+            if (i % 4 != 3)
+            {
+                var offset = i % 4;
+                var new_index = (i / 4) * 3 + offset;
+                var j = _new_buffer_length - 1 - new_index;
+                _fixed_buffer2[j] = textureBuffer[i];
+            }
+        }
+
+        var index = 0;
+
+        for (int j = 0; j < _height; j++)
+        {
+            for (int i = 0; i < _width; i++)
+            {
+                var swap = j * _width * 3 + (_width - 1 - i) * 3;
+                for (int channel = 0; channel < 3; channel++)
+                {
+                    var new_index = swap + channel;
+
+                    if (new_index < 0 || new_index >= _fixed_buffer2.Length)
+                    {
+                        Debug.LogError("new_index=" + new_index + " i=" + i + " j=" + j + " channel=" + channel);
+                    }
+
+                    _fixed_buffer[index] = _fixed_buffer2[new_index];
+                    index++;
+                }
+            }
         }
     }
 
@@ -830,15 +857,18 @@ public class PointCloudDrawer : MonoBehaviour
         }
     }
 
-    private bool ArucoDetection(Texture2D texture2D, out Matrix4x4 mat)
+    private bool ArucoDetection(Mat rgbMat, out Matrix4x4 mat)
     {
-        Mat rgbMat = new Mat((int) _height, (int) _width, CvType.CV_8UC3);
-        Utils.texture2DToMat(texture2D, rgbMat);
+        var stopwatch = new System.Diagnostics.Stopwatch();
+        stopwatch.Start();
         Aruco.detectMarkers(rgbMat, _dictionary, _corners, _ids, _detectorParams, _rejected);
-
+        //Debug.LogWarning("elapsed time for marker detection is " + stopwatch.ElapsedMilliseconds + " ms");
         if (_ids.total() > 0)
         {
+            stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
             Aruco.estimatePoseSingleMarkers(_corners, _markerLength, _camMatrix, _distCoeffs, _rvecs, _tvecs);
+            //Debug.LogWarning("elapsed time for marker pose retrieval is " + stopwatch.ElapsedMilliseconds + " ms");
             var mat2 = GetMatrix(_tvecs.get(0,0), _rvecs.get(0,0));
             mat = mat2;
             Aruco.drawAxis(rgbMat, _camMatrix, _distCoeffs, _rvecs, _tvecs, _markerLength * 0.5f);
