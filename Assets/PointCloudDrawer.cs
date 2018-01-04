@@ -20,7 +20,7 @@ public class PointCloudDrawer : MonoBehaviour
     [SerializeField]
     private string directory_to_png;
 
-    private int current_frame = 422;
+    private int current_frame = 420;
 
     private Texture2D _texture2D;
     private Dictionary<long, Matrix4x4> dict = new Dictionary<long, Matrix4x4>();
@@ -178,11 +178,34 @@ public class PointCloudDrawer : MonoBehaviour
         ARUtils.SetTransformFromMatrix(_root.transform, ref trs);
     }
 
+    /// By hand result
+    //private static Matrix4x4 GetSlamToArucoMatrix()
+    //{
+    //    var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
+    //    var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
+    //    var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
+
+    //    var trs = Matrix4x4.TRS(pos, rot, scale);
+    //    return trs;
+    //}
+
+    /// Computed but with hand picked scale factor
+    //private static Matrix4x4 GetSlamToArucoMatrix()
+    //{
+    //    var pos = new Vector3(0.178565f, 0.2048237f, -0.4317436f);
+    //    var rot = new Quaternion(0.195333f, -0.1246114f, 0.0449519f, 0.9717491f);
+    //    var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
+
+    //    var trs = Matrix4x4.TRS(pos, rot, scale);
+    //    return trs;
+    //}
+
+    /// Computed
     private static Matrix4x4 GetSlamToArucoMatrix()
     {
-        var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
-        var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
-        var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
+        var pos = new Vector3(0.1828432f, 0.1996195f, -0.4255983f);
+        var rot = new Quaternion(0.1953329f, -0.1246114f, 0.04495191f, 0.9717491f);
+        var scale = new Vector3(0.6558151f, 0.6558151f, 0.6558151f);
 
         var trs = Matrix4x4.TRS(pos, rot, scale);
         return trs;
@@ -504,8 +527,8 @@ public class PointCloudDrawer : MonoBehaviour
 
     void Update()
     {
-        Matrix4x4 m2 = Matrix4x4.identity;
-        bool isM2Set = false;
+        Matrix4x4 maybe_slam_matrix = Matrix4x4.identity;
+        bool is_slam_matrix_set = false;
         if (!_bypassUpdate)
         {
             _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
@@ -561,11 +584,11 @@ public class PointCloudDrawer : MonoBehaviour
 
                 for (int i = 0; i < 16; i++)
                 {
-                    m2[i] = _matrix[i];
+                    maybe_slam_matrix[i] = _matrix[i];
                 }
 
-                isM2Set = true;
-                m2 = m2.transpose;
+                is_slam_matrix_set = true;
+                maybe_slam_matrix = maybe_slam_matrix.transpose;
 
                 File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
                         "" + current_frame + " pose is \n[" + m2.ToString() + "]\n"
@@ -612,35 +635,40 @@ public class PointCloudDrawer : MonoBehaviour
 #endif
             if (dict.ContainsKey(current_index))
             {
-                m2 = dict[current_index];
-                isM2Set = true;
+                maybe_slam_matrix = dict[current_index];
+                is_slam_matrix_set = true;
             }
 #endif
-            if (isM2Set)
+            if (is_slam_matrix_set)
             {
-                var matUnity = ToUnityFrame(m2);
-                //ApplyPoseMatrix(matUnity);
+                var slam_matrix = ToUnityFrame(maybe_slam_matrix);
+                //ApplyPoseMatrix(slam_matrix);
 
                 // transform camera pose from Slam reference frame
                 // to the one in the Aruco one
-                var result = GetSlamToArucoMatrix() * matUnity;
+                var result = GetSlamToArucoMatrix() * slam_matrix;
                 ApplyPoseMatrix(result);
             }
 
-            Matrix4x4 mat;
-            var hasDetected = ArucoDetection(_texture2D, out mat);
+            Matrix4x4 aruco_matrix;
+            var hasDetected = ArucoDetection(_texture2D, out aruco_matrix);
             if (hasDetected)
             {
-                //ApplyPoseMatrix(mat);
+                //ApplyPoseMatrix(aruco_matrix);
 
-                if (current_frame == 424)
+                // pick good frame to compute relative matrix;
+                if (current_frame == 423)
                 {
                     // TODO
+                    //var scaleFactor = 0.6121542f;
+                    var scaleFactor = 0.6558151126f;
+                    var slam_matrix = ToUnityFrame(dict[current_index]);
+                    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
                 }
 
-                if (isM2Set)
+                if (is_slam_matrix_set)
                 {
-                    var matUnity = ToUnityFrame(m2);
+                    var matUnity = ToUnityFrame(maybe_slam_matrix);
                     if (!_pairOfMatrices.ContainsKey(current_frame))
                     {
                         _pairOfMatrices.Add(
@@ -648,7 +676,7 @@ public class PointCloudDrawer : MonoBehaviour
                             new PairOfMatrixAtFrame()
                             {
                                 matrix_slam = matUnity,
-                                matrix_aruco = mat,
+                                matrix_aruco = aruco_matrix,
                             });
                     }
                 }
@@ -676,11 +704,50 @@ public class PointCloudDrawer : MonoBehaviour
         }
     }
 
+    private Matrix4x4 ComputeSlamToArucoMatrix
+    (
+        Matrix4x4 mat_slam, 
+        Matrix4x4 mat_aruco, 
+        float scaleFactor
+    )
+    {
+
+        var fix_scale =
+            Matrix4x4.TRS
+            (
+                Vector3.zero,
+                Quaternion.identity,
+                Vector3.one * scaleFactor
+            );
+
+        var p = mat_aruco * fix_scale * mat_slam.inverse;
+
+        // Extract new local position
+        Vector3 position = p.GetColumn(3);
+
+        // Extract new local rotation
+        Quaternion rotation = Quaternion.LookRotation(
+            p.GetColumn(2),
+            p.GetColumn(1)
+        );
+
+        // Extract new local scale
+        Vector3 scale = new Vector3(
+            p.GetColumn(0).magnitude,
+            p.GetColumn(1).magnitude,
+            p.GetColumn(2).magnitude
+        );
+
+        //Debug.LogWarning(position.x + " " + position.y + " " + position.z);
+        //Debug.LogWarning(rotation.x + " " + rotation.y + " " + rotation.z + " " + rotation.w);
+        //Debug.LogWarning(scale.x + " " + scale.y + " " + scale.z);
+        return p;
+    }
+
     private void TryComputeScaleFactor()
     {
         if (current_frame == 530)
         {
-            List<float> ratios = new List<float>();
             Bounds bb_slam = new Bounds();
             bool is_bb_slam_set = false;
             Bounds bb_aruco = new Bounds();
@@ -728,15 +795,8 @@ public class PointCloudDrawer : MonoBehaviour
                             matrices_i_plus_one.matrix_slam.m23
                         );
 
-                    var delta_slam = (slam_pos_i_one - slam_pos_i);//.magnitude;
-                    var delta_aruco = (aruco_pos_i_one - aruco_pos_i);//.magnitude;
-
-                    //float current_ratio = delta_slam / delta_aruco;
-
-                    //if (current_ratio != 0 && !(float.IsInfinity(current_ratio)) && !(float.IsNaN(current_ratio)))
-                    //{
-                    //    ratios.Add(current_ratio);
-                    //}
+                    var delta_slam = (slam_pos_i_one - slam_pos_i);
+                    var delta_aruco = (aruco_pos_i_one - aruco_pos_i);
 
                     if (!is_bb_slam_set)
                     {
@@ -757,21 +817,12 @@ public class PointCloudDrawer : MonoBehaviour
                     {
                         bb_aruco.Encapsulate(aruco_pos_i);
                     }
-
-                    //Debug.LogWarning("1-adding point " + aruco_pos_i);
-                    //Debug.LogWarning("2-adding point " + slam_pos_i);
+                    
                 }
             }
 
             var aruco_magnitude = bb_aruco.extents.magnitude;
             var slam_magnitude = bb_slam.extents.magnitude;
-
-            //foreach(var ratio in ratios)
-            //{
-            //    Debug.Log("ratio is " + ratio);
-            //}
-
-            //float average = ratios.Average();
 
             float average = slam_magnitude / aruco_magnitude;
 
