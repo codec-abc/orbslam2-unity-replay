@@ -23,7 +23,7 @@ public class PointCloudDrawer : MonoBehaviour
     private int current_frame = 0;
 
     private Texture2D _texture2D;
-    private Dictionary<long, Matrix4x4> dict = 
+    private Dictionary<long, Matrix4x4> dict =
         new Dictionary<long, Matrix4x4>();
 
     private List<string> _images;
@@ -114,13 +114,11 @@ public class PointCloudDrawer : MonoBehaviour
 #endif
     }
 
-    Matrix4x4 YAxisInversion = 
+    Matrix4x4 YAxisInversion =
         Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(1, -1, 1));
 
     private GameObject _root;
 
-    [SerializeField]
-    private bool _bypassUpdate = false;
     private Mat _camMatrix;
 
     private uint _width;
@@ -149,13 +147,6 @@ public class PointCloudDrawer : MonoBehaviour
     private IntPtr _slamSystem = IntPtr.Zero;
     private IntPtr _vocabFile;
     private float[] _matrix = new float[16];
-    private byte[] _fixed_buffer2;
-    private byte[] _fixed_buffer;
-    private uint _buffer_length;
-    private uint _new_buffer_length;
-    private GCHandle _pinnedArray;
-    private IntPtr _pointer;
-    private byte[] _managedArray;
 #endif
 
     void Start()
@@ -184,17 +175,17 @@ public class PointCloudDrawer : MonoBehaviour
     }
 
     /// By hand result
-    //private static Matrix4x4 GetSlamToArucoMatrix()
-    //{
-    //    var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
-    //    var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
-    //    var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
+    private static Matrix4x4 GetSlamToArucoMatrix()
+    {
+        var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
+        var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
+        var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
 
-    //    var trs = Matrix4x4.TRS(pos, rot, scale);
-    //    return trs;
-    //}
+        var trs = Matrix4x4.TRS(pos, rot, scale);
+        return trs;
+    }
 
-    /// Computed but with hand picked scale factor
+    /// Computed but with hand picked scale factor and hand picked frame
     //private static Matrix4x4 GetSlamToArucoMatrix()
     //{
     //    var pos = new Vector3(0.178565f, 0.2048237f, -0.4317436f);
@@ -205,16 +196,16 @@ public class PointCloudDrawer : MonoBehaviour
     //    return trs;
     //}
 
-    /// Computed
-    private static Matrix4x4 GetSlamToArucoMatrix()
-    {
-        var pos = new Vector3(0.1828432f, 0.1996195f, -0.4255983f);
-        var rot = new Quaternion(0.1953329f, -0.1246114f, 0.04495191f, 0.9717491f);
-        var scale = new Vector3(0.6558151f, 0.6558151f, 0.6558151f);
+    /// Computed with hand picked frame
+    //private static Matrix4x4 GetSlamToArucoMatrix()
+    //{
+    //    var pos = new Vector3(0.1828432f, 0.1996195f, -0.4255983f);
+    //    var rot = new Quaternion(0.1953329f, -0.1246114f, 0.04495191f, 0.9717491f);
+    //    var scale = new Vector3(0.6558151f, 0.6558151f, 0.6558151f);
 
-        var trs = Matrix4x4.TRS(pos, rot, scale);
-        return trs;
-    }
+    //    var trs = Matrix4x4.TRS(pos, rot, scale);
+    //    return trs;
+    //}
 
     private void OnGUI()
     {
@@ -231,7 +222,7 @@ public class PointCloudDrawer : MonoBehaviour
         _rejected = new List<Mat>();
         _rvecs = new Mat();
         _tvecs = new Mat();
-        
+
         _detectorParams = DetectorParameters.create();
         _dictionary = Aruco.getPredefinedDictionary(dictionaryId);
 
@@ -282,16 +273,6 @@ public class PointCloudDrawer : MonoBehaviour
 
         handle1.Free();
         handle2.Free();
-
-        var intrin = GetIntrinsics();
-
-        _fixed_buffer2 = new byte[_width * _height * 3];
-        _fixed_buffer = new byte[_width * _height * 3];
-        _buffer_length = _width * _height * 4;
-        _new_buffer_length = _width * _height * 3;
-        _pinnedArray = GCHandle.Alloc(_fixed_buffer, GCHandleType.Pinned);
-        _pointer = _pinnedArray.AddrOfPinnedObject();
-        _managedArray = new byte[_buffer_length];
     }
 #endif
 
@@ -308,10 +289,10 @@ public class PointCloudDrawer : MonoBehaviour
         var realPath = Path.Combine(directory_to_png, "image-");
         var length = realPath.Length;
 
-        Comparison<string> comparison = 
+        Comparison<string> comparison =
             new Comparison<string>
             (
-                (a, b) => 
+                (a, b) =>
                 {
                     var a_p = a.Remove(0, length).Replace(".png", "");
                     var b_p = b.Remove(0, length).Replace(".png", "");
@@ -326,8 +307,8 @@ public class PointCloudDrawer : MonoBehaviour
         var intrinsics = GetIntrinsics();
         var distCoefs = GetDistortionCoef();
 
-        int width = (int) intrinsics.Width;
-        int height = (int) intrinsics.Height;
+        int width = (int)intrinsics.Width;
+        int height = (int)intrinsics.Height;
 
         int halfWidth = width / 2;
         int halfHeight = height / 2;
@@ -355,7 +336,7 @@ public class PointCloudDrawer : MonoBehaviour
         renderer.material = mat;
         _backgroundMesh.GetComponent<Renderer>().material.mainTexture = _texture2D;
 
-        var aspect_ratio = (float) width / height;
+        var aspect_ratio = (float)width / height;
 
         var frustum =
             BuildFrustumFromIntrinsics
@@ -379,11 +360,11 @@ public class PointCloudDrawer : MonoBehaviour
         var deltaXPercent = (intrinsics.Cx - halfWidth) / width;
         var deltaYPercent = (intrinsics.Cy - halfHeight) / height;
 
-        _backgroundMesh.transform.localPosition = 
+        _backgroundMesh.transform.localPosition =
             new Vector3
             (
-                deltaXPercent * frustumSizeHorizontal, 
-                deltaYPercent * frustumSizeVertical, 
+                deltaXPercent * frustumSizeHorizontal,
+                deltaYPercent * frustumSizeVertical,
                 near_plane + 0.00001f
             );
     }
@@ -423,9 +404,9 @@ public class PointCloudDrawer : MonoBehaviour
     {
         var splits = str.Split(' ');
         return new Vector3(
-                x : float.Parse(splits[0]),
-                y : float.Parse(splits[1]),
-                z : float.Parse(splits[2])
+                x: float.Parse(splits[0]),
+                y: float.Parse(splits[1]),
+                z: float.Parse(splits[2])
             );
     }
 
@@ -474,9 +455,9 @@ public class PointCloudDrawer : MonoBehaviour
 
     private Matrix4x4 GetMatrix
     (
-        string line1, 
-        string line2, 
-        string line3, 
+        string line1,
+        string line2,
+        string line3,
         string line4
     )
     {
@@ -539,80 +520,29 @@ public class PointCloudDrawer : MonoBehaviour
     {
         Matrix4x4 maybe_slam_matrix = Matrix4x4.identity;
         bool is_slam_matrix_set = false;
-        if (!_bypassUpdate)
+
+        _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
+        _texture2D.Apply();
+
+        Mat rgbMat = new Mat((int)_height, (int)_width, CvType.CV_8UC3);
+        var stopwatch = new System.Diagnostics.Stopwatch();
+        stopwatch.Start();
+        Utils.texture2DToMat(_texture2D, rgbMat);
+        //Debug.LogWarning("elapsed time for texture conversion is " + stopwatch.ElapsedMilliseconds + " ms");
+
+        Matrix4x4 aruco_mat = Matrix4x4.identity;
+        var has_detected = false;
+
+        var thread = new System.Threading.Thread(() =>
         {
-            _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
-            _texture2D.Apply();
+            has_detected = RunAruco(rgbMat, ref aruco_mat);
+        });
 
-            Mat rgbMat = new Mat((int)_height, (int)_width, CvType.CV_8UC3);
-            var stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start();
-            Utils.texture2DToMat(_texture2D, rgbMat);
-            //Debug.LogWarning("elapsed time for texture conversion is " + stopwatch.ElapsedMilliseconds + " ms");
-
+        thread.Start();
 
 #if !USE_RECORDED_DATA
-            var current_index = current_frame;
-            //convertTextureToOpenCVMat();
-
-            IntPtr pose = SlamWrapper.update_image(
-                            _slamSystem,
-                            new IntPtr(rgbMat.dataAddr()),
-                            //_pointer,
-                            (int)_width,
-                            (int)_height,
-                            Time.timeSinceLevelLoad
-                        );
-
-            if (pose.ToInt64() != 0)
-            {
-                Marshal.Copy(pose, _matrix, 0, 16);
-                SlamWrapper.delete_pointer(pose);
-
-                for (int i = 0; i < 16; i++)
-                {
-                    maybe_slam_matrix[i] = _matrix[i];
-                }
-
-                is_slam_matrix_set = true;
-                maybe_slam_matrix = maybe_slam_matrix.transpose;
-
-                File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
-                        "" + current_frame + " pose is \n[" + maybe_slam_matrix.ToString() + "]\n"
-                    );
-
-                if (current_frame == 665)
-                {
-                    int array_size = 0;
-                    var array_ptr =
-                        SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
-
-                    if (array_ptr.ToInt64() != 0 && array_size > 0)
-                    {
-                        var tracked3DPoints = new float[array_size];
-                        Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
-                        SlamWrapper.delete_pointer(array_ptr);
-
-                        var points = new List<Vector3>();
-                        for (int i = 0; i < tracked3DPoints.Length / 4; i++)
-                        {
-                            var x = tracked3DPoints[i * 4 + 0];
-                            var y = tracked3DPoints[i * 4 + 1];
-                            var z = tracked3DPoints[i * 4 + 2];
-                            var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
-                            points.Add(new Vector3(x, y, z));
-                        }
-
-                        var lines =
-                            points
-                            .Select((point) => "" + point.x + " " + point.y + " " + point.z)
-                            .ToArray();
-
-                        var path = @"C:\Users\sesa455926\Desktop\movieSlam2\mappoints.txt";
-                        File.WriteAllLines(path, lines);
-                    }
-                }
-            }
+        var current_index = current_frame;
+        RunSlam(ref maybe_slam_matrix, ref is_slam_matrix_set, rgbMat);
 #else
 
 #if USE_MACHINE_HALL
@@ -626,50 +556,33 @@ public class PointCloudDrawer : MonoBehaviour
                 is_slam_matrix_set = true;
             }
 #endif
-            if (is_slam_matrix_set)
-            {
-                var slam_matrix = ToUnityFrame(maybe_slam_matrix);
-                //ApplyPoseMatrix(slam_matrix);
+        thread.Join();
 
-                // transform camera pose from Slam reference frame
-                // to the one in the Aruco one
-                var result = GetSlamToArucoMatrix() * slam_matrix;
-                ApplyPoseMatrix(result);
-            }
+        if (is_slam_matrix_set)
+        {
+            var slam_matrix = ToUnityFrame(maybe_slam_matrix);
+            //ApplyPoseMatrix(slam_matrix);
 
-            Matrix4x4 aruco_matrix;
+            // transform camera pose from Slam reference frame
+            // to the one in the Aruco one
+            var result = GetSlamToArucoMatrix() * slam_matrix;
+            ApplyPoseMatrix(result);
+        }
+        
+        if (has_detected)
+        {
+            //ApplyPoseMatrix(aruco_matrix);
 
-            var hasDetected = ArucoDetection(rgbMat, out aruco_matrix);
-            if (hasDetected)
-            {
-                //ApplyPoseMatrix(aruco_matrix);
+            // pick good frame to compute relative matrix;
 
-                // pick good frame to compute relative matrix;
-
-                //if (current_frame == 423)
-                //{
-                //    // TODO
-                //    //var scaleFactor = 0.6121542f;
-                //    var scaleFactor = 0.6558151126f;
-                //    var slam_matrix = ToUnityFrame(dict[current_index]);
-                //    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
-                //}
-
-                if (is_slam_matrix_set)
-                {
-                    var matUnity = ToUnityFrame(maybe_slam_matrix);
-                    if (!_pairOfMatrices.ContainsKey(current_frame))
-                    {
-                        _pairOfMatrices.Add(
-                            current_frame,
-                            new PairOfMatrixAtFrame()
-                            {
-                                matrix_slam = matUnity,
-                                matrix_aruco = aruco_matrix,
-                            });
-                    }
-                }
-            }
+            //if (current_frame == 423)
+            //{
+            //    // TODO
+            //    //var scaleFactor = 0.6121542f;
+            //    var scaleFactor = 0.6558151126f;
+            //    var slam_matrix = ToUnityFrame(dict[current_index]);
+            //    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
+            //}
         }
 
         //TryComputeScaleFactor();
@@ -693,39 +606,68 @@ public class PointCloudDrawer : MonoBehaviour
         }
     }
 
-    private void convertTextureToOpenCVMat()
+    private bool RunAruco(Mat rgbMat, ref Matrix4x4 aruco_matrix)
     {
-        var textureBuffer = _texture2D.GetRawTextureData();
+        var hasDetected = ArucoDetection(rgbMat, out aruco_matrix);
+        return hasDetected;
+    }
 
-        for (int i = 0; i < _buffer_length; i++)
+    private void RunSlam(ref Matrix4x4 maybe_slam_matrix, ref bool is_slam_matrix_set, Mat rgbMat)
+    {
+        IntPtr pose = SlamWrapper.update_image(
+                                    _slamSystem,
+                                    new IntPtr(rgbMat.dataAddr()),
+                                    (int)_width,
+                                    (int)_height,
+                                    Time.timeSinceLevelLoad
+                                );
+
+        if (pose.ToInt64() != 0)
         {
-            if (i % 4 != 3)
+            Marshal.Copy(pose, _matrix, 0, 16);
+            SlamWrapper.delete_pointer(pose);
+
+            for (int i = 0; i < 16; i++)
             {
-                var offset = i % 4;
-                var new_index = (i / 4) * 3 + offset;
-                var j = _new_buffer_length - 1 - new_index;
-                _fixed_buffer2[j] = textureBuffer[i];
+                maybe_slam_matrix[i] = _matrix[i];
             }
-        }
 
-        var index = 0;
+            is_slam_matrix_set = true;
+            maybe_slam_matrix = maybe_slam_matrix.transpose;
 
-        for (int j = 0; j < _height; j++)
-        {
-            for (int i = 0; i < _width; i++)
+            File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
+                    "" + current_frame + " pose is \n[" + maybe_slam_matrix.ToString() + "]\n"
+                );
+
+            if (current_frame == 665)
             {
-                var swap = j * _width * 3 + (_width - 1 - i) * 3;
-                for (int channel = 0; channel < 3; channel++)
-                {
-                    var new_index = swap + channel;
+                int array_size = 0;
+                var array_ptr =
+                    SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
 
-                    if (new_index < 0 || new_index >= _fixed_buffer2.Length)
+                if (array_ptr.ToInt64() != 0 && array_size > 0)
+                {
+                    var tracked3DPoints = new float[array_size];
+                    Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
+                    SlamWrapper.delete_pointer(array_ptr);
+
+                    var points = new List<Vector3>();
+                    for (int i = 0; i < tracked3DPoints.Length / 4; i++)
                     {
-                        Debug.LogError("new_index=" + new_index + " i=" + i + " j=" + j + " channel=" + channel);
+                        var x = tracked3DPoints[i * 4 + 0];
+                        var y = tracked3DPoints[i * 4 + 1];
+                        var z = tracked3DPoints[i * 4 + 2];
+                        var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
+                        points.Add(new Vector3(x, y, z));
                     }
 
-                    _fixed_buffer[index] = _fixed_buffer2[new_index];
-                    index++;
+                    var lines =
+                        points
+                        .Select((point) => "" + point.x + " " + point.y + " " + point.z)
+                        .ToArray();
+
+                    var path = @"C:\Users\sesa455926\Desktop\movieSlam2\mappoints.txt";
+                    File.WriteAllLines(path, lines);
                 }
             }
         }
@@ -733,8 +675,8 @@ public class PointCloudDrawer : MonoBehaviour
 
     private Matrix4x4 ComputeSlamToArucoMatrix
     (
-        Matrix4x4 mat_slam, 
-        Matrix4x4 mat_aruco, 
+        Matrix4x4 mat_slam,
+        Matrix4x4 mat_aruco,
         float scaleFactor
     )
     {
@@ -844,7 +786,7 @@ public class PointCloudDrawer : MonoBehaviour
                     {
                         bb_aruco.Encapsulate(aruco_pos_i);
                     }
-                    
+
                 }
             }
 
@@ -869,7 +811,7 @@ public class PointCloudDrawer : MonoBehaviour
             stopwatch.Start();
             Aruco.estimatePoseSingleMarkers(_corners, _markerLength, _camMatrix, _distCoeffs, _rvecs, _tvecs);
             //Debug.LogWarning("elapsed time for marker pose retrieval is " + stopwatch.ElapsedMilliseconds + " ms");
-            var mat2 = GetMatrix(_tvecs.get(0,0), _rvecs.get(0,0));
+            var mat2 = GetMatrix(_tvecs.get(0, 0), _rvecs.get(0, 0));
             mat = mat2;
             Aruco.drawAxis(rgbMat, _camMatrix, _distCoeffs, _rvecs, _tvecs, _markerLength * 0.5f);
             return true;
@@ -987,7 +929,7 @@ public class PointCloudDrawer : MonoBehaviour
 
         public uint Width;
         public uint Height;
-        
+
         public CameraIntrinsics
         (
             uint width,
