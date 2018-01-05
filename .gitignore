@@ -43,3 +43,6 @@ Assets/StreamingAssets/ORBvoc.txt.meta
 
 Assets/OpenCVForUnity/
 Assets/OpenCVForUnity.meta
+
+Assets/StreamingAssets/vocabulary.bin
+Assets/StreamingAssets/vocabulary.bin.meta

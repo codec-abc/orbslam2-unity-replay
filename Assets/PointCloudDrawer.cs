@@ -147,6 +147,10 @@ public class PointCloudDrawer : MonoBehaviour
     private IntPtr _slamSystem = IntPtr.Zero;
     private IntPtr _vocabFile;
     private float[] _matrix = new float[16];
+    private float _scale_factor;
+    private bool _has_computed_scale_factor;
+    private Matrix4x4 _matrixFromSlamToAruco;
+    private bool _has_matrix;
 #endif
 
     void Start()
@@ -175,15 +179,15 @@ public class PointCloudDrawer : MonoBehaviour
     }
 
     /// By hand result
-    private static Matrix4x4 GetSlamToArucoMatrix()
-    {
-        var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
-        var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
-        var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
+    //private static Matrix4x4 GetSlamToArucoMatrix()
+    //{
+    //    var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
+    //    var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
+    //    var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
 
-        var trs = Matrix4x4.TRS(pos, rot, scale);
-        return trs;
-    }
+    //    var trs = Matrix4x4.TRS(pos, rot, scale);
+    //    return trs;
+    //}
 
     /// Computed but with hand picked scale factor and hand picked frame
     //private static Matrix4x4 GetSlamToArucoMatrix()
@@ -246,7 +250,7 @@ public class PointCloudDrawer : MonoBehaviour
 #if !USE_RECORDED_DATA
     private void CreateSlamSystem()
     {
-        var vocabFilePath = Path.Combine(Application.streamingAssetsPath, "ORBvoc.txt");
+        var vocabFilePath = Path.Combine(Application.streamingAssetsPath, "vocabulary.bin");
         var vocalFilesPathsAsBytes = Encoding.ASCII.GetBytes(vocabFilePath);
 
         var cameraConfigFile = Path.Combine(Application.streamingAssetsPath, "cameraConfig.yaml");
@@ -508,11 +512,19 @@ public class PointCloudDrawer : MonoBehaviour
     private void OnDestroy()
     {
 #if !USE_RECORDED_DATA
-        SlamWrapper.shutdown_slam_system(_slamSystem);
+        if (_slamSystem.ToInt64() != 0)
+        {
+            SlamWrapper.shutdown_slam_system(_slamSystem);
+            SlamWrapper.delete_pointer(_slamSystem);
+            _slamSystem = IntPtr.Zero;
+        }
+
         if (_vocabFile.ToInt64() != 0)
         {
             SlamWrapper.delete_pointer(_vocabFile);
+            _vocabFile = IntPtr.Zero;
         }
+
 #endif
     }
 
@@ -557,35 +569,65 @@ public class PointCloudDrawer : MonoBehaviour
             }
 #endif
         thread.Join();
+        var slam_matrix = Matrix4x4.identity;
 
         if (is_slam_matrix_set)
         {
-            var slam_matrix = ToUnityFrame(maybe_slam_matrix);
-            //ApplyPoseMatrix(slam_matrix);
-
-            // transform camera pose from Slam reference frame
-            // to the one in the Aruco one
-            var result = GetSlamToArucoMatrix() * slam_matrix;
-            ApplyPoseMatrix(result);
+            slam_matrix = ToUnityFrame(maybe_slam_matrix);
+            if (!_has_computed_scale_factor)
+            {
+                _has_computed_scale_factor = TryComputeScaleFactor(out _scale_factor);
+                if (_has_computed_scale_factor)
+                {
+                    Debug.LogWarning("scale factor computed to " + _scale_factor);
+                }
+            }
+            if (_has_matrix)
+            {
+                // transform camera pose from Slam reference frame
+                // to the one in the Aruco one
+                var result = _matrixFromSlamToAruco * slam_matrix;
+                ApplyPoseMatrix(result);
+            }
         }
-        
+
         if (has_detected)
         {
             //ApplyPoseMatrix(aruco_matrix);
 
+            if (!_pairOfMatrices.ContainsKey(current_index))
+            {
+                _pairOfMatrices.Add(current_index, new PairOfMatrixAtFrame()
+                {
+                    matrix_aruco = aruco_mat,
+                    matrix_slam = slam_matrix
+                });
+            }
+            
             // pick good frame to compute relative matrix;
-
             //if (current_frame == 423)
             //{
             //    // TODO
             //    //var scaleFactor = 0.6121542f;
-            //    var scaleFactor = 0.6558151126f;
+            //    
             //    var slam_matrix = ToUnityFrame(dict[current_index]);
             //    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
             //}
+
+            if (is_slam_matrix_set && _has_computed_scale_factor && ! _has_matrix)
+            {
+                //var scaleFactor = 0.6558151126f;
+                var scaleFactor = _scale_factor;
+
+                _matrixFromSlamToAruco = 
+                    ComputeSlamToArucoMatrix(slam_matrix, aruco_mat, scaleFactor);
+
+                Debug.LogWarning("matrix from slam to aruco computed.");
+
+                _has_matrix = true;
+            }
         }
 
-        //TryComputeScaleFactor();
 
         if (Time.frameCount % 1 == 0)
         {
@@ -713,90 +755,100 @@ public class PointCloudDrawer : MonoBehaviour
         return p;
     }
 
-    private void TryComputeScaleFactor()
+    private bool TryComputeScaleFactor(out float scale_factor)
     {
-        if (current_frame == 530)
+        Bounds bb_slam = new Bounds();
+        bool is_bb_slam_set = false;
+        Bounds bb_aruco = new Bounds();
+        bool is_bb_aruco_set = false;
+        int max = _pairOfMatrices.Keys.Max();
+        var number_of_handled_points = 0;
+        for (int i = 0; i < max; i++)
         {
-            Bounds bb_slam = new Bounds();
-            bool is_bb_slam_set = false;
-            Bounds bb_aruco = new Bounds();
-            bool is_bb_aruco_set = false;
-            for (int i = 0; i < 644; i++)
+            if
+            (
+                _pairOfMatrices.ContainsKey(i) // &&
+                //_pairOfMatrices.ContainsKey(i + 1)
+            )
             {
-                if
-                (
-                    _pairOfMatrices.ContainsKey(i) &&
-                    _pairOfMatrices.ContainsKey(i + 1)
-                )
+                number_of_handled_points++;
+                var matrices_i = _pairOfMatrices[i];
+
+                var aruco_pos_i =
+                    new Vector3
+                    (
+                        matrices_i.matrix_aruco.m03,
+                        matrices_i.matrix_aruco.m13,
+                        matrices_i.matrix_aruco.m23
+                    );
+
+                var slam_pos_i =
+                    new Vector3
+                    (
+                        matrices_i.matrix_slam.m03,
+                        matrices_i.matrix_slam.m13,
+                        matrices_i.matrix_slam.m23
+                    );
+                
+                //var matrices_i_plus_one = _pairOfMatrices[i + 1];
+
+                //var aruco_pos_i_one =
+                //    new Vector3
+                //    (
+                //        matrices_i_plus_one.matrix_aruco.m03,
+                //        matrices_i_plus_one.matrix_aruco.m13,
+                //        matrices_i_plus_one.matrix_aruco.m23
+                //    );
+
+
+                //var slam_pos_i_one =
+                //    new Vector3
+                //    (
+                //        matrices_i_plus_one.matrix_slam.m03,
+                //        matrices_i_plus_one.matrix_slam.m13,
+                //        matrices_i_plus_one.matrix_slam.m23
+                //    );
+
+                //var delta_slam = (slam_pos_i_one - slam_pos_i);
+                //var delta_aruco = (aruco_pos_i_one - aruco_pos_i);
+
+                if (!is_bb_slam_set)
                 {
-                    var matrices_i = _pairOfMatrices[i];
-                    var matrices_i_plus_one = _pairOfMatrices[i + 1];
+                    bb_slam = new Bounds(slam_pos_i, Vector3.zero);
+                    is_bb_slam_set = true;
+                }
+                else
+                {
+                    bb_slam.Encapsulate(slam_pos_i);
+                }
 
-                    var aruco_pos_i =
-                        new Vector3
-                        (
-                            matrices_i.matrix_aruco.m03,
-                            matrices_i.matrix_aruco.m13,
-                            matrices_i.matrix_aruco.m23
-                        );
-
-                    var aruco_pos_i_one =
-                        new Vector3
-                        (
-                            matrices_i_plus_one.matrix_aruco.m03,
-                            matrices_i_plus_one.matrix_aruco.m13,
-                            matrices_i_plus_one.matrix_aruco.m23
-                        );
-
-                    var slam_pos_i =
-                        new Vector3
-                        (
-                            matrices_i.matrix_slam.m03,
-                            matrices_i.matrix_slam.m13,
-                            matrices_i.matrix_slam.m23
-                        );
-
-                    var slam_pos_i_one =
-                        new Vector3
-                        (
-                            matrices_i_plus_one.matrix_slam.m03,
-                            matrices_i_plus_one.matrix_slam.m13,
-                            matrices_i_plus_one.matrix_slam.m23
-                        );
-
-                    var delta_slam = (slam_pos_i_one - slam_pos_i);
-                    var delta_aruco = (aruco_pos_i_one - aruco_pos_i);
-
-                    if (!is_bb_slam_set)
-                    {
-                        bb_slam = new Bounds(slam_pos_i, Vector3.zero);
-                        is_bb_slam_set = true;
-                    }
-                    else
-                    {
-                        bb_slam.Encapsulate(slam_pos_i);
-                    }
-
-                    if (!is_bb_aruco_set)
-                    {
-                        bb_aruco = new Bounds(aruco_pos_i, Vector3.zero);
-                        is_bb_aruco_set = true;
-                    }
-                    else
-                    {
-                        bb_aruco.Encapsulate(aruco_pos_i);
-                    }
-
+                if (!is_bb_aruco_set)
+                {
+                    bb_aruco = new Bounds(aruco_pos_i, Vector3.zero);
+                    is_bb_aruco_set = true;
+                }
+                else
+                {
+                    bb_aruco.Encapsulate(aruco_pos_i);
                 }
             }
+        }
 
+        if (number_of_handled_points > 50)
+        {             
             var aruco_magnitude = bb_aruco.extents.magnitude;
             var slam_magnitude = bb_slam.extents.magnitude;
 
-            float average = slam_magnitude / aruco_magnitude;
-
-            Debug.LogWarning("average is " + average);
+            if (slam_magnitude > 0.3f) // move to at least 0.3m to get a correct estimation
+            {
+                float average = aruco_magnitude / slam_magnitude;
+                scale_factor = average;
+                return true;
+            }
         }
+        scale_factor = 1;
+        return false;
+
     }
 
     private bool ArucoDetection(Mat rgbMat, out Matrix4x4 mat)
