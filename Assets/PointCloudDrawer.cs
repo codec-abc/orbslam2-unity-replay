@@ -533,28 +533,42 @@ public class PointCloudDrawer : MonoBehaviour
         Matrix4x4 maybe_slam_matrix = Matrix4x4.identity;
         bool is_slam_matrix_set = false;
 
+        var stopwatchTex = new System.Diagnostics.Stopwatch();
+        stopwatchTex.Start();
         _texture2D.LoadImage(File.ReadAllBytes(_images[current_frame]));
         _texture2D.Apply();
+        stopwatchTex.Stop();
+        Debug.LogWarning("elapsed time for texture reading " + stopwatchTex.ElapsedMilliseconds + " ms");
 
         Mat rgbMat = new Mat((int)_height, (int)_width, CvType.CV_8UC3);
         var stopwatch = new System.Diagnostics.Stopwatch();
         stopwatch.Start();
         Utils.texture2DToMat(_texture2D, rgbMat);
-        //Debug.LogWarning("elapsed time for texture conversion is " + stopwatch.ElapsedMilliseconds + " ms");
+        Debug.LogWarning("elapsed time for texture conversion is " + stopwatch.ElapsedMilliseconds + " ms");
 
         Matrix4x4 aruco_mat = Matrix4x4.identity;
         var has_detected = false;
 
         var thread = new System.Threading.Thread(() =>
         {
+            var stopwatchAruco = new System.Diagnostics.Stopwatch();
+            stopwatchAruco.Start();
             has_detected = RunAruco(rgbMat, ref aruco_mat);
+            stopwatchAruco.Stop();
+            Debug.LogWarning("elapsed time for running aruco is " + stopwatchAruco.ElapsedMilliseconds + " ms");
+
         });
 
         thread.Start();
 
 #if !USE_RECORDED_DATA
         var current_index = current_frame;
+        var stopwatchSlam = new System.Diagnostics.Stopwatch();
+        stopwatchSlam.Start();
         RunSlam(ref maybe_slam_matrix, ref is_slam_matrix_set, rgbMat);
+        stopwatchSlam.Stop();
+        Debug.LogWarning("elapsed time for running slam is " + stopwatchSlam.ElapsedMilliseconds + " ms");
+
 #else
 
 #if USE_MACHINE_HALL
@@ -656,13 +670,15 @@ public class PointCloudDrawer : MonoBehaviour
 
     private void RunSlam(ref Matrix4x4 maybe_slam_matrix, ref bool is_slam_matrix_set, Mat rgbMat)
     {
-        IntPtr pose = SlamWrapper.update_image(
-                                    _slamSystem,
-                                    new IntPtr(rgbMat.dataAddr()),
-                                    (int)_width,
-                                    (int)_height,
-                                    Time.timeSinceLevelLoad
-                                );
+        IntPtr pose = 
+            SlamWrapper.update_image
+            (
+                _slamSystem,
+                new IntPtr(rgbMat.dataAddr()),
+                (int)_width,
+                (int)_height,
+                Time.timeSinceLevelLoad
+            );
 
         if (pose.ToInt64() != 0)
         {
@@ -677,41 +693,41 @@ public class PointCloudDrawer : MonoBehaviour
             is_slam_matrix_set = true;
             maybe_slam_matrix = maybe_slam_matrix.transpose;
 
-            File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
-                    "" + current_frame + " pose is \n[" + maybe_slam_matrix.ToString() + "]\n"
-                );
+            //File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
+            //        "" + current_frame + " pose is \n[" + maybe_slam_matrix.ToString() + "]\n"
+            //    );
 
-            if (current_frame == 665)
-            {
-                int array_size = 0;
-                var array_ptr =
-                    SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
+            //if (current_frame == 665)
+            //{
+            //    int array_size = 0;
+            //    var array_ptr =
+            //        SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
 
-                if (array_ptr.ToInt64() != 0 && array_size > 0)
-                {
-                    var tracked3DPoints = new float[array_size];
-                    Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
-                    SlamWrapper.delete_pointer(array_ptr);
+            //    if (array_ptr.ToInt64() != 0 && array_size > 0)
+            //    {
+            //        var tracked3DPoints = new float[array_size];
+            //        Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
+            //        SlamWrapper.delete_pointer(array_ptr);
 
-                    var points = new List<Vector3>();
-                    for (int i = 0; i < tracked3DPoints.Length / 4; i++)
-                    {
-                        var x = tracked3DPoints[i * 4 + 0];
-                        var y = tracked3DPoints[i * 4 + 1];
-                        var z = tracked3DPoints[i * 4 + 2];
-                        var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
-                        points.Add(new Vector3(x, y, z));
-                    }
+            //        var points = new List<Vector3>();
+            //        for (int i = 0; i < tracked3DPoints.Length / 4; i++)
+            //        {
+            //            var x = tracked3DPoints[i * 4 + 0];
+            //            var y = tracked3DPoints[i * 4 + 1];
+            //            var z = tracked3DPoints[i * 4 + 2];
+            //            var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
+            //            points.Add(new Vector3(x, y, z));
+            //        }
 
-                    var lines =
-                        points
-                        .Select((point) => "" + point.x + " " + point.y + " " + point.z)
-                        .ToArray();
+            //        var lines =
+            //            points
+            //            .Select((point) => "" + point.x + " " + point.y + " " + point.z)
+            //            .ToArray();
 
-                    var path = @"C:\Users\sesa455926\Desktop\movieSlam2\mappoints.txt";
-                    File.WriteAllLines(path, lines);
-                }
-            }
+            //        var path = @"C:\Users\sesa455926\Desktop\movieSlam2\mappoints.txt";
+            //        File.WriteAllLines(path, lines);
+            //    }
+            //}
         }
     }
 
