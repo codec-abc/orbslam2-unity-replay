@@ -85,10 +85,12 @@ public class PointCloudDrawer : MonoBehaviour
     private DetectorParameters _detectorParams;
     private Dictionary _dictionary;
     private MatOfDouble _distCoeffs;
-    
+
+    private int _tracking_state = 0;
     private IntPtr _slamSystem = IntPtr.Zero;
     private IntPtr _vocabFile;
     private float[] _matrix = new float[16];
+
     private float _scale_factor;
     private bool _has_computed_scale_factor;
     private Matrix4x4 _matrixFromSlamToAruco;
@@ -108,7 +110,9 @@ public class PointCloudDrawer : MonoBehaviour
     
     private void OnGUI()
     {
-        GUI.Label(new UnityEngine.Rect(0, 0, 200, 200), "frame is " + current_frame);
+        GUI.Label(new UnityEngine.Rect(0, 0, 600, 200), " Frame is " + current_frame);
+        var state = (eTrackingState) _tracking_state;
+        GUI.Label(new UnityEngine.Rect(0, 40, 600, 200), " Tracking state is " + state.ToString());
     }
 
     private void InitAruco()
@@ -348,9 +352,16 @@ public class PointCloudDrawer : MonoBehaviour
         stopwatchSlam.Stop();
         //Debug.LogWarning("elapsed time for running slam is " + stopwatchSlam.ElapsedMilliseconds + " ms");
 
+        _tracking_state = SlamWrapper.get_tracking_state(_slamSystem);
+
+        if (_tracking_state == (int)eTrackingState.NOT_INITIALIZED)
+        {
+            Cleanup(true);
+        }
+
         thread.Join();
         var slam_matrix = Matrix4x4.identity;
-
+        is_slam_matrix_set &= _tracking_state == (int) eTrackingState.OK;
         if (is_slam_matrix_set)
         {
             slam_matrix = ToUnityFrame(maybe_slam_matrix);
@@ -468,49 +479,63 @@ public class PointCloudDrawer : MonoBehaviour
                         var point3d = cloud_points_3d[index];
                         var delta = point3d - camera_position;
                         var k = -camera_position.z / delta.z;
-                        scale_factor_values.Add(k);
+                        
+                        var pt_2d_projected = markers_points_screen_frame[i];
+                        var point3d_projected = cloud_points_screen_frame[index];
+                        var distance = Vector2.Distance(pt_2d_projected, point3d_projected);
+
+                        if (distance < 10.0f)
+                        {
+                            scale_factor_values.Add(k);
+                        }
 
                         //var pt_2d = marker_points[i];
                         //var pt_2d_in_m = markers_points_in_meters[i];
-                        //var pt_2d_projected = markers_points_screen_frame[i];
-                        //var point3d_projected = 
-                        //    cloud_points_screen_frame[index];
-                        //var distance = Vector2.Distance(pt_2d_projected, point3d_projected);
                         //var height = (int) GetIntrinsics().Height;
                         //Debug.DrawLine(pt_2d_in_m, point3d);
                     }
 
-                    _scale_factor = scale_factor_values.Average();
-
-                    Debug.LogWarning("computed scale factor is " + _scale_factor);
-
-                    _matrixFromSlamToAruco = ComputeSlamToArucoMatrix(slam_matrix, aruco_mat, _scale_factor);
-                    _has_matrix = true;
-
-                    for (int i = 0; i < tracked3DPoints.Length / 4; i++)
+                    if (scale_factor_values.Count > 20)
                     {
-                        var x = tracked3DPoints[i * 4 + 0];
-                        var y = tracked3DPoints[i * 4 + 1];
-                        var z = tracked3DPoints[i * 4 + 2];
-                        var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
 
-                        var p = new Vector4(x, y, z, 1);
-                        //p /= _scale_factor;
 
-                        var m = Matrix4x4.TRS(p, Quaternion.identity, Vector3.one);
-                        var mat = ChangeReferenceOfMatrix(m);
-                        var pos_ = mat.GetColumn(3);
-                        pos_ = pos_ / pos_.w;
 
-                        var pos = _matrixFromSlamToAruco * pos_;
+                        _scale_factor = scale_factor_values.Average();
 
-                        pos = pos / pos.w;
-                        cloud_points_3d.Add(pos);
+                        Debug.LogWarning("computed scale factor is " + _scale_factor);
+
+                        _matrixFromSlamToAruco = ComputeSlamToArucoMatrix(slam_matrix, aruco_mat, _scale_factor);
+                        _has_matrix = true;
+
+                        for (int i = 0; i < tracked3DPoints.Length / 4; i++)
+                        {
+                            var x = tracked3DPoints[i * 4 + 0];
+                            var y = tracked3DPoints[i * 4 + 1];
+                            var z = tracked3DPoints[i * 4 + 2];
+                            var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
+
+                            var p = new Vector4(x, y, z, 1);
+                            //p /= _scale_factor;
+
+                            var m = Matrix4x4.TRS(p, Quaternion.identity, Vector3.one);
+                            var mat = ChangeReferenceOfMatrix(m);
+                            var pos_ = mat.GetColumn(3);
+                            pos_ = pos_ / pos_.w;
+
+                            var pos = _matrixFromSlamToAruco * pos_;
+
+                            pos = pos / pos.w;
+                            cloud_points_3d.Add(pos);
+                        }
+
+                        _hasCreatePoints = true;
+                        Debug.LogWarning("creating point cloud");
+                        CreatePointCloudFromVector3dArray(cloud_points_3d.ToArray());
                     }
-
-                    _hasCreatePoints = true;
-                    Debug.LogWarning("creating point cloud");
-                    CreatePointCloudFromVector3dArray(cloud_points_3d.ToArray());
+                    else
+                    {
+                        Cleanup(false);
+                    }
                 }
             }
         }
@@ -627,15 +652,17 @@ public class PointCloudDrawer : MonoBehaviour
 
     private bool HasMovedEnough()
     {
+        if (_pairOfMatrices.Count <= 30)
+        {
+            return false;
+        }
         Bounds bb_aruco = new Bounds();
         bool is_bb_aruco_set = false;
         int max = _pairOfMatrices.Keys.Max();
-        var number_of_handled_points = 0;
         for (int i = 0; i < max; i++)
         {
             if(_pairOfMatrices.ContainsKey(i))
             {
-                number_of_handled_points++;
                 var matrices_i = _pairOfMatrices[i];
 
                 var aruco_pos_i =
@@ -657,17 +684,36 @@ public class PointCloudDrawer : MonoBehaviour
                 }
             }
         }
-
-        if (number_of_handled_points > 50)
-        {
-            var aruco_magnitude = bb_aruco.extents.magnitude;
+        var aruco_magnitude = bb_aruco.extents.magnitude;
             
-            if (aruco_magnitude > 0.25f) // move to at least 0.23m to get a correct estimation
+        //if (aruco_magnitude > 0.1f) // move to at least 0.1m to get a correct estimation
+        {
+            return true;
+        }
+    }
+
+    private void Cleanup(bool cleanSyncDic)
+    {
+        try
+        {
+            foreach (Transform child in _root.transform)
             {
-                return true;
+                GameObject.Destroy(child.gameObject);
             }
         }
-        return false;
+        catch (Exception)
+        {
+        }
+
+        _hasCreatePoints = false;
+        _has_computed_scale_factor = false;
+        _has_matrix = false;
+        _scale_factor = 1.0f;
+
+        if (cleanSyncDic)
+        {
+            _pairOfMatrices = new Dictionary<int, PairOfMatrixAtFrame>();
+        }
     }
 
     private bool ArucoDetection(Mat rgbMat, out Matrix4x4 mat)
@@ -897,4 +943,13 @@ public class PointCloudDrawer : MonoBehaviour
             };
         }
     }
+
+    public enum eTrackingState
+    {
+        SYSTEM_NOT_READY = -1,
+        NO_IMAGES_YET = 0,
+        NOT_INITIALIZED = 1,
+        OK = 2,
+        LOST = 3
+    };
 }
