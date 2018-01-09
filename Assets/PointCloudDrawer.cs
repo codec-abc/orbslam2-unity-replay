@@ -625,55 +625,6 @@ public class PointCloudDrawer : MonoBehaviour
 
                 }
             }
-
-            if (_has_matrix)
-            {
-                if (!_hasCreatePoints && _has_matrix)
-                {
-                    int array_size = 0;
-
-                    var array_ptr =
-                        SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
-
-                    if (array_ptr.ToInt64() != 0 && array_size > 0)
-                    {
-                        var tracked3DPoints = new float[array_size];
-                        Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
-                        SlamWrapper.delete_pointer(array_ptr);
-
-                        var points = new List<Vector3>();
-                        for (int i = 0; i < tracked3DPoints.Length / 4; i++)
-                        {
-                            var x = tracked3DPoints[i * 4 + 0];
-                            var y = tracked3DPoints[i * 4 + 1];
-                            var z = tracked3DPoints[i * 4 + 2];
-                            var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
-
-                            var p = new Vector4(x, y, z, 1);
-
-                            var m = Matrix4x4.TRS(p, Quaternion.identity, Vector3.one);
-                            var mat = ChangeReferenceOfMatrix(m);
-                            var pos_ = mat.GetColumn(3);
-                            pos_ = pos_ / pos_.w;
-
-                            var pos = _matrixFromSlamToAruco * pos_;
-
-                            pos = pos / pos.w;
-                            points.Add(pos);
-
-                        }
-
-                        Debug.LogWarning("creating point cloud");
-                        CreatePointCloudFromVector3dArray(points.ToArray());
-                        _hasCreatePoints = true;
-                    }
-                }
-
-                // transform camera pose from Slam reference frame
-                // to the one in the Aruco one
-                var result = _matrixFromSlamToAruco * slam_matrix;
-                ApplyPoseMatrix(result);
-            }
         }
 
         if (has_detected)
@@ -711,6 +662,55 @@ public class PointCloudDrawer : MonoBehaviour
 
                 _has_matrix = true;
             }
+
+            if (!_hasCreatePoints && _has_matrix)
+            {
+                int array_size = 0;
+
+                var array_ptr =
+                    SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
+
+                if (array_ptr.ToInt64() != 0 && array_size > 0)
+                {
+                    var tracked3DPoints = new float[array_size];
+                    Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
+                    SlamWrapper.delete_pointer(array_ptr);
+
+                    var points = new List<Vector3>();
+                    for (int i = 0; i < tracked3DPoints.Length / 4; i++)
+                    {
+                        var x = tracked3DPoints[i * 4 + 0];
+                        var y = tracked3DPoints[i * 4 + 1];
+                        var z = tracked3DPoints[i * 4 + 2];
+                        var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
+
+                        var p = new Vector4(x, y, z, 1);
+
+                        var m = Matrix4x4.TRS(p, Quaternion.identity, Vector3.one);
+                        var mat = ChangeReferenceOfMatrix(m);
+                        var pos_ = mat.GetColumn(3);
+                        pos_ = pos_ / pos_.w;
+
+                        var pos = _matrixFromSlamToAruco * pos_;
+
+                        pos = pos / pos.w;
+                        points.Add(pos);
+                    }
+
+                    Debug.LogWarning("creating point cloud");
+                    CreatePointCloudFromVector3dArray(points.ToArray());
+                    _hasCreatePoints = true;
+                    // TODO : try compute better scale factor
+                }
+            }
+        }
+
+        if (is_slam_matrix_set && _has_matrix)
+        {
+            // transform camera pose from Slam reference frame
+            // to the one in the Aruco one
+            var result = _matrixFromSlamToAruco * slam_matrix;
+            ApplyPoseMatrix(result);
         }
 
         if (Time.frameCount % 1 == 0)
@@ -1094,5 +1094,49 @@ public class PointCloudDrawer : MonoBehaviour
         public float p1;
         public float p2;
         public float k3;
+    }
+
+    public static class ArucoTagDict10Id1PointList
+    {
+        public static List<Vector2> GetPoints()
+        {
+            return new List<Vector2>()
+            {
+                // 1-5
+                new Vector2(-3, 2),
+                new Vector2(-2, 2),
+                new Vector2(-3, -2),
+                new Vector2(-2, -2),
+                new Vector2(-1, -2),
+
+                // 6-10
+                new Vector2(-1, -3),
+                new Vector2(-2, -3),
+                new Vector2(2, -3),
+                new Vector2(3, -3),
+                new Vector2(3, -2),
+
+                //11-15
+                new Vector2(2, -2),
+                new Vector2(2, -1),
+                new Vector2(3, -1),
+                new Vector2(3, 0),
+                new Vector2(2, 0),
+
+                //16-20
+                new Vector2(2, 1),
+                new Vector2(3, 1),
+                new Vector2(3, 3),
+                new Vector2(1, 3),
+                new Vector2(1, 2),
+
+                //21-24
+                new Vector2(-1, 2),
+                new Vector2(-1, 0),
+                new Vector2(1, 0),
+                new Vector2(1, 2),
+
+            };
+        }
     }
 }
