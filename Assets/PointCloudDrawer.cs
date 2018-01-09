@@ -387,26 +387,48 @@ public class PointCloudDrawer : MonoBehaviour
             .Select(str => ToVector3(str))
             .ToArray();
 
-        CreatePointCloudFromVector3Array(pos);
+        CreatePointCloudFromVector3dArrayWithReferenceSwitch(pos);
     }
 
-    private void CreatePointCloudFromVector3Array(Vector3[] pos)
+    private void CreatePointCloudFromVector3dArrayWithReferenceSwitch(Vector3[] positions)
     {
         _root = new GameObject();
         _root.transform.position = Vector3.zero;
         _root.transform.rotation = Quaternion.identity;
         _root.name = "Point cloud";
 
-        foreach (var a_pos in pos)
+        int i = 0;
+        foreach (var pos in positions)
         {
             var obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             obj.transform.parent = _root.transform;
-            var m = Matrix4x4.TRS(a_pos, Quaternion.identity, Vector3.one);
+            var m = Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one);
             var new_mat = ChangeReferenceOfMatrix(m);
             var pos_4 = new_mat.GetColumn(3);
             var new_pos = new Vector3(pos_4.x, pos_4.y, pos_4.z);
             obj.transform.position = new_pos;
             obj.transform.localScale = Vector3.one * sphere_size;
+            obj.name = "point_" + i.ToString("00000");
+            i++;
+        }
+    }
+
+    private void CreatePointCloudFromVector3dArray(Vector3[] positions)
+    {
+        _root = new GameObject();
+        _root.transform.position = Vector3.zero;
+        _root.transform.rotation = Quaternion.identity;
+        _root.name = "Point cloud";
+
+        int i = 0;
+        foreach (var pos in positions)
+        {
+            var obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            obj.transform.parent = _root.transform;
+            obj.transform.position = pos;
+            obj.transform.localScale = Vector3.one * sphere_size;
+            obj.name = "point_" + i.ToString("00000");
+            i++;
         }
     }
 
@@ -627,13 +649,22 @@ public class PointCloudDrawer : MonoBehaviour
                             var z = tracked3DPoints[i * 4 + 2];
                             var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
 
-                            var p = new Vector3(x, y, z);
-                            points.Add(p);
+                            var p = new Vector4(x, y, z, 1);
+
+                            var m = Matrix4x4.TRS(p, Quaternion.identity, Vector3.one);
+                            var mat = ChangeReferenceOfMatrix(m);
+                            var pos_ = mat.GetColumn(3);
+                            pos_ = pos_ / pos_.w;
+
+                            var pos = _matrixFromSlamToAruco * pos_;
+
+                            pos = pos / pos.w;
+                            points.Add(pos);
+
                         }
 
                         Debug.LogWarning("creating point cloud");
-                        CreatePointCloudFromVector3Array(points.ToArray());
-                        ARUtils.SetTransformFromMatrix(_root.transform, ref _matrixFromSlamToAruco);
+                        CreatePointCloudFromVector3dArray(points.ToArray());
                         _hasCreatePoints = true;
                     }
                 }
@@ -681,7 +712,6 @@ public class PointCloudDrawer : MonoBehaviour
                 _has_matrix = true;
             }
         }
-
 
         if (Time.frameCount % 1 == 0)
         {
