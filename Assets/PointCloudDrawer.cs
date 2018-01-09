@@ -354,16 +354,8 @@ public class PointCloudDrawer : MonoBehaviour
         if (is_slam_matrix_set)
         {
             slam_matrix = ToUnityFrame(maybe_slam_matrix);
-            if (!_has_computed_scale_factor)
-            {
-                _has_computed_scale_factor = TryComputeScaleFactor(out _scale_factor);
-                _scale_factor = 1.0f;
-                if (_has_computed_scale_factor)
-                {
-                    Debug.LogWarning("scale factor computed to " + _scale_factor);
-
-                }
-            }
+            _scale_factor = 1.0f;
+            _has_computed_scale_factor = true;
         }
 
         if (has_detected)
@@ -613,105 +605,6 @@ public class PointCloudDrawer : MonoBehaviour
         return p;
     }
 
-    private bool TryComputeScaleFactor(out float scale_factor)
-    {
-        Bounds bb_slam = new Bounds();
-        bool is_bb_slam_set = false;
-        Bounds bb_aruco = new Bounds();
-        bool is_bb_aruco_set = false;
-        int max = _pairOfMatrices.Keys.Max();
-        var number_of_handled_points = 0;
-        for (int i = 0; i < max; i++)
-        {
-            if
-            (
-                _pairOfMatrices.ContainsKey(i) // &&
-                                               //_pairOfMatrices.ContainsKey(i + 1)
-            )
-            {
-                number_of_handled_points++;
-                var matrices_i = _pairOfMatrices[i];
-
-                var aruco_pos_i =
-                    new Vector3
-                    (
-                        matrices_i.matrix_aruco.m03,
-                        matrices_i.matrix_aruco.m13,
-                        matrices_i.matrix_aruco.m23
-                    );
-
-                var slam_pos_i =
-                    new Vector3
-                    (
-                        matrices_i.matrix_slam.m03,
-                        matrices_i.matrix_slam.m13,
-                        matrices_i.matrix_slam.m23
-                    );
-
-                //var matrices_i_plus_one = _pairOfMatrices[i + 1];
-
-                //var aruco_pos_i_one =
-                //    new Vector3
-                //    (
-                //        matrices_i_plus_one.matrix_aruco.m03,
-                //        matrices_i_plus_one.matrix_aruco.m13,
-                //        matrices_i_plus_one.matrix_aruco.m23
-                //    );
-
-
-                //var slam_pos_i_one =
-                //    new Vector3
-                //    (
-                //        matrices_i_plus_one.matrix_slam.m03,
-                //        matrices_i_plus_one.matrix_slam.m13,
-                //        matrices_i_plus_one.matrix_slam.m23
-                //    );
-
-                //var delta_slam = (slam_pos_i_one - slam_pos_i);
-                //var delta_aruco = (aruco_pos_i_one - aruco_pos_i);
-
-                if (!is_bb_slam_set)
-                {
-                    bb_slam = new Bounds(slam_pos_i, Vector3.zero);
-                    is_bb_slam_set = true;
-                }
-                else
-                {
-                    bb_slam.Encapsulate(slam_pos_i);
-                }
-
-                if (!is_bb_aruco_set)
-                {
-                    bb_aruco = new Bounds(aruco_pos_i, Vector3.zero);
-                    is_bb_aruco_set = true;
-                }
-                else
-                {
-                    bb_aruco.Encapsulate(aruco_pos_i);
-                }
-            }
-        }
-
-        if (number_of_handled_points > 50)
-        {
-            var aruco_magnitude = bb_aruco.extents.magnitude;
-            var slam_magnitude = bb_slam.extents.magnitude;
-
-
-            if (slam_magnitude > 0.25f) // move to at least 0.3m to get a correct estimation
-            {
-                float average = aruco_magnitude / slam_magnitude;
-                scale_factor = average;
-
-                Debug.LogWarning("aruco_magnitude is " + aruco_magnitude);
-                Debug.LogWarning("slam_magnitude is " + slam_magnitude);
-                return true;
-            }
-        }
-        scale_factor = 1;
-        return false;
-
-    }
 
     private bool ArucoDetection(Mat rgbMat, out Matrix4x4 mat)
     {
