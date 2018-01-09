@@ -1,8 +1,4 @@
-﻿//#define USE_RECORDED_DATA
-//#define USE_MACHINE_HALL
-
-using OpenCVForUnity;
-using OpenCVForUnityExample;
+﻿using OpenCVForUnity;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -37,63 +33,20 @@ public class PointCloudDrawer : MonoBehaviour
 
     private static CameraIntrinsics GetIntrinsics()
     {
-#if USE_MACHINE_HALL
-        //return new CameraIntrinsics
-        //(
-        //    width: 752,
-        //    height: 480,
-        //    fx: 458.654f,
-        //    fy: 457.296f,
-        //    cx: 367.215f,
-        //    cy: 248.375f
-        //);
-
         return new CameraIntrinsics
         (
             width: 1280,
             height: 720,
-
-            //fx: 1024.45f,
-            //fy: 1031.36f,
-            //cx: 673.26f,
-            //cy: 438.08f
 
             fx: 1028.0f,
             fy: 1028.0f,
             cx: 640.0f,
             cy: 360.0f
         );
-#else 
-        return new CameraIntrinsics
-        (
-            width: 1280,
-            height: 720,
-
-            //fx: 1024.45f,
-            //fy: 1031.36f,
-            //cx: 673.26f,
-            //cy: 438.08f
-
-            fx: 1028.0f,
-            fy: 1028.0f,
-            cx: 640.0f,
-            cy: 360.0f
-        );
-#endif
     }
 
     private static DistortionCoefficient GetDistortionCoef()
     {
-#if USE_MACHINE_HALL
-        //return new DistortionCoefficient()
-        //{
-        //    k1 = -0.28340811f,
-        //    k2 = 0.07395907f,
-        //    p1 = 0.00019359f,
-        //    p2 = 1.76187114e-05f,
-        //    k3 = 0
-        //};
-
         return new DistortionCoefficient()
         {
             k1 = 0.0f,
@@ -102,16 +55,6 @@ public class PointCloudDrawer : MonoBehaviour
             p2 = 0.0f,
             k3 = 0.0f
         };
-#else
-        return new DistortionCoefficient()
-        {
-            k1 = 0.0f,
-            k2 = 0.0f,
-            p1 = 0.0f,
-            p2 = 0.0f,
-            k3 = 0.0f
-        };
-#endif
     }
 
     Matrix4x4 YAxisInversion =
@@ -142,8 +85,7 @@ public class PointCloudDrawer : MonoBehaviour
     private DetectorParameters _detectorParams;
     private Dictionary _dictionary;
     private MatOfDouble _distCoeffs;
-
-#if !USE_RECORDED_DATA
+    
     private IntPtr _slamSystem = IntPtr.Zero;
     private IntPtr _vocabFile;
     private float[] _matrix = new float[16];
@@ -152,66 +94,18 @@ public class PointCloudDrawer : MonoBehaviour
     private Matrix4x4 _matrixFromSlamToAruco;
     private bool _has_matrix;
     private bool _hasCreatePoints;
-#endif
 
     void Start()
     {
         var intrin = GetIntrinsics();
         _width = intrin.Width;
         _height = intrin.Height;
-
-#if USE_RECORDED_DATA
-        CreatePointCloud();
-        RetrivePoses();
-#endif
         GetPngs();
         InitAruco();
         ApplyProjectionMatrix();
-
-#if !USE_RECORDED_DATA
         CreateSlamSystem();
-        File.Delete(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt");
-#else
-        //var go = GameObject.Find("Cube");
-
-        Matrix4x4 trs = GetSlamToArucoMatrix();
-        ARUtils.SetTransformFromMatrix(_root.transform, ref trs);
-#endif
     }
-
-    /// By hand result
-    //private static Matrix4x4 GetSlamToArucoMatrix()
-    //{
-    //    var pos = new Vector3(0.1785481f, 0.1992328f, -0.4355855f);
-    //    var rot = new Quaternion(0.1899464f, -0.1183734f, 0.03930989f, 0.9738392f);
-    //    var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
-
-    //    var trs = Matrix4x4.TRS(pos, rot, scale);
-    //    return trs;
-    //}
-
-    /// Computed but with hand picked scale factor and hand picked frame
-    //private static Matrix4x4 GetSlamToArucoMatrix()
-    //{
-    //    var pos = new Vector3(0.178565f, 0.2048237f, -0.4317436f);
-    //    var rot = new Quaternion(0.195333f, -0.1246114f, 0.0449519f, 0.9717491f);
-    //    var scale = new Vector3(0.6121542f, 0.6121542f, 0.6121542f);
-
-    //    var trs = Matrix4x4.TRS(pos, rot, scale);
-    //    return trs;
-    //}
-
-    /// Computed with hand picked frame
-    //private static Matrix4x4 GetSlamToArucoMatrix()
-    //{
-    //    var pos = new Vector3(0.1828432f, 0.1996195f, -0.4255983f);
-    //    var rot = new Quaternion(0.1953329f, -0.1246114f, 0.04495191f, 0.9717491f);
-    //    var scale = new Vector3(0.6558151f, 0.6558151f, 0.6558151f);
-
-    //    var trs = Matrix4x4.TRS(pos, rot, scale);
-    //    return trs;
-    //}
-
+    
     private void OnGUI()
     {
         GUI.Label(new UnityEngine.Rect(0, 0, 200, 200), "frame is " + current_frame);
@@ -248,7 +142,6 @@ public class PointCloudDrawer : MonoBehaviour
         _distCoeffs = new MatOfDouble(dist.k1, dist.k2, dist.p1, dist.p2);
     }
 
-#if !USE_RECORDED_DATA
     private void CreateSlamSystem()
     {
         var vocabFilePath = Path.Combine(Application.streamingAssetsPath, "vocabulary.bin");
@@ -260,7 +153,7 @@ public class PointCloudDrawer : MonoBehaviour
         var handle1 = GCHandle.Alloc(vocalFilesPathsAsBytes);
         var handle2 = GCHandle.Alloc(cameraConfigFiles);
 
-        var isDisplayingWindow = true;
+        var isDisplayingWindow = false;
 
         byte displayWindowAsByte =
             isDisplayingWindow ?
@@ -279,7 +172,6 @@ public class PointCloudDrawer : MonoBehaviour
         handle1.Free();
         handle2.Free();
     }
-#endif
 
     private void GetPngs()
     {
@@ -374,45 +266,6 @@ public class PointCloudDrawer : MonoBehaviour
             );
     }
 
-    private void CreatePointCloud()
-    {
-        var mapPointsFilePath =
-            Path.Combine(Application.streamingAssetsPath, "mappoints.txt");
-
-        var lines = File.ReadAllLines(mapPointsFilePath);
-
-        var pos =
-            lines
-            .Where(str => str.Contains(' '))
-            .Select(str => ToVector3(str))
-            .ToArray();
-
-        CreatePointCloudFromVector3dArrayWithReferenceSwitch(pos);
-    }
-
-    private void CreatePointCloudFromVector3dArrayWithReferenceSwitch(Vector3[] positions)
-    {
-        _root = new GameObject();
-        _root.transform.position = Vector3.zero;
-        _root.transform.rotation = Quaternion.identity;
-        _root.name = "Point cloud";
-
-        int i = 0;
-        foreach (var pos in positions)
-        {
-            var obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            obj.transform.parent = _root.transform;
-            var m = Matrix4x4.TRS(pos, Quaternion.identity, Vector3.one);
-            var new_mat = ChangeReferenceOfMatrix(m);
-            var pos_4 = new_mat.GetColumn(3);
-            var new_pos = new Vector3(pos_4.x, pos_4.y, pos_4.z);
-            obj.transform.position = new_pos;
-            obj.transform.localScale = Vector3.one * sphere_size;
-            obj.name = "point_" + i.ToString("00000");
-            i++;
-        }
-    }
-
     private void CreatePointCloudFromVector3dArray(Vector3[] positions)
     {
         _root = new GameObject();
@@ -432,104 +285,6 @@ public class PointCloudDrawer : MonoBehaviour
         }
     }
 
-    private Vector3 ToVector3(string str)
-    {
-        var splits = str.Split(' ');
-        return new Vector3(
-                x: float.Parse(splits[0]),
-                y: float.Parse(splits[1]),
-                z: float.Parse(splits[2])
-            );
-    }
-
-    private void RetrivePoses()
-    {
-        var poseFilePath =
-            Path.Combine(Application.streamingAssetsPath, "poses.txt");
-
-        var lines = File.ReadAllLines(poseFilePath);
-        long current_pose = 0;
-
-        for (int i = 0; i < lines.Length;)
-        {
-            var current_line = lines[i];
-            if (current_line.Contains("pose is"))
-            {
-                current_pose = Int64.Parse(current_line.Split(' ')[0]);
-                i++;
-            }
-            else if (current_line.Contains("[]"))
-            {
-                dict.Add(current_pose, Matrix4x4.zero);
-                i++;
-            }
-            else if (current_line.Contains("["))
-            {
-                var line0 = lines[i + 0].Replace("[", "").Replace("]", "").Replace(" ", "").Replace(";", "");
-                var line1 = lines[i + 1].Replace("[", "").Replace("]", "").Replace(" ", "").Replace(";", "");
-                var line2 = lines[i + 2].Replace("[", "").Replace("]", "").Replace(" ", "").Replace(";", "");
-                var line3 = lines[i + 3].Replace("[", "").Replace("]", "").Replace(" ", "").Replace(";", "");
-
-                var mat = GetMatrix(line0, line1, line2, line3);
-                dict.Add(current_pose, mat);
-#if USE_MACHINE_HALL
-                i += 4;
-#else
-                i += 5;
-#endif
-            }
-            else
-            {
-                throw new Exception("something went wrong for line " + i + " ie " + current_line);
-            }
-        }
-    }
-
-    private Matrix4x4 GetMatrix
-    (
-        string line1,
-        string line2,
-        string line3,
-        string line4
-    )
-    {
-#if USE_MACHINE_HALL
-        var numbersLine1 = line1.Split(',').Select(str => float.Parse(str)).ToArray();
-        var numbersLine2 = line2.Split(',').Select(str => float.Parse(str)).ToArray();
-        var numbersLine3 = line3.Split(',').Select(str => float.Parse(str)).ToArray();
-        var numbersLine4 = line4.Split(',').Select(str => float.Parse(str)).ToArray();
-#else
-        var numbersLine1 = line1.Split('\t').Select(str => float.Parse(str)).ToArray();
-        var numbersLine2 = line2.Split('\t').Select(str => float.Parse(str)).ToArray();
-        var numbersLine3 = line3.Split('\t').Select(str => float.Parse(str)).ToArray();
-        var numbersLine4 = line4.Split('\t').Select(str => float.Parse(str)).ToArray();
-#endif
-
-        var mat = new Matrix4x4();
-
-        mat[0] = numbersLine1[0];
-        mat[1] = numbersLine1[1];
-        mat[2] = numbersLine1[2];
-        mat[3] = numbersLine1[3];
-
-        mat[4] = numbersLine2[0];
-        mat[5] = numbersLine2[1];
-        mat[6] = numbersLine2[2];
-        mat[7] = numbersLine2[3];
-
-        mat[8] = numbersLine3[0];
-        mat[9] = numbersLine3[1];
-        mat[10] = numbersLine3[2];
-        mat[11] = numbersLine3[3];
-
-        mat[12] = numbersLine4[0];
-        mat[13] = numbersLine4[1];
-        mat[14] = numbersLine4[2];
-        mat[15] = numbersLine4[3];
-
-        return mat.transpose;
-    }
-
     public Matrix4x4 ChangeReferenceOfMatrix(Matrix4x4 m)
     {
         var a = YAxisInversion;
@@ -539,7 +294,6 @@ public class PointCloudDrawer : MonoBehaviour
 
     private void OnDestroy()
     {
-#if !USE_RECORDED_DATA
         if (_slamSystem.ToInt64() != 0)
         {
             SlamWrapper.shutdown_slam_system(_slamSystem);
@@ -552,8 +306,6 @@ public class PointCloudDrawer : MonoBehaviour
             SlamWrapper.delete_pointer(_vocabFile);
             _vocabFile = IntPtr.Zero;
         }
-
-#endif
     }
 
     void Update()
@@ -588,8 +340,7 @@ public class PointCloudDrawer : MonoBehaviour
         });
 
         thread.Start();
-
-#if !USE_RECORDED_DATA
+        
         var current_index = current_frame;
         var stopwatchSlam = new System.Diagnostics.Stopwatch();
         stopwatchSlam.Start();
@@ -597,19 +348,6 @@ public class PointCloudDrawer : MonoBehaviour
         stopwatchSlam.Stop();
         //Debug.LogWarning("elapsed time for running slam is " + stopwatchSlam.ElapsedMilliseconds + " ms");
 
-#else
-
-#if USE_MACHINE_HALL
-            var current_index = dict.Keys.ToArray()[current_frame];
-#else
-            var current_index = current_frame;
-#endif
-            if (dict.ContainsKey(current_index))
-            {
-                maybe_slam_matrix = dict[current_index];
-                is_slam_matrix_set = true;
-            }
-#endif
         thread.Join();
         var slam_matrix = Matrix4x4.identity;
 
@@ -619,6 +357,7 @@ public class PointCloudDrawer : MonoBehaviour
             if (!_has_computed_scale_factor)
             {
                 _has_computed_scale_factor = TryComputeScaleFactor(out _scale_factor);
+                _scale_factor = 1.0f;
                 if (_has_computed_scale_factor)
                 {
                     Debug.LogWarning("scale factor computed to " + _scale_factor);
@@ -630,7 +369,6 @@ public class PointCloudDrawer : MonoBehaviour
         if (has_detected)
         {
             //ApplyPoseMatrix(aruco_matrix);
-
             if (!_pairOfMatrices.ContainsKey(current_index))
             {
                 _pairOfMatrices.Add(current_index, new PairOfMatrixAtFrame()
@@ -640,19 +378,8 @@ public class PointCloudDrawer : MonoBehaviour
                 });
             }
 
-            // pick good frame to compute relative matrix;
-            //if (current_frame == 423)
-            //{
-            //    // TODO
-            //    //var scaleFactor = 0.6121542f;
-            //    
-            //    var slam_matrix = ToUnityFrame(dict[current_index]);
-            //    var p = ComputeSlamToArucoMatrix(slam_matrix, aruco_matrix, scaleFactor);
-            //}
-
             if (is_slam_matrix_set && _has_computed_scale_factor && !_has_matrix)
             {
-                //var scaleFactor = 0.6558151126f;
                 var scaleFactor = _scale_factor;
 
                 _matrixFromSlamToAruco =
@@ -716,19 +443,7 @@ public class PointCloudDrawer : MonoBehaviour
         if (Time.frameCount % 1 == 0)
         {
             current_frame++;
-#if !USE_RECORDED_DATA
             current_frame = current_frame % _images.Count;
-#else
-#if USE_MACHINE_HALL
-            current_frame = current_frame % dict.Keys.Count;
-#else
-            current_frame = current_frame % (int) dict.Keys.Max();
-            if (current_frame == 0)
-            {
-                current_frame = 350;
-            }
-#endif
-#endif
         }
     }
 
@@ -762,42 +477,6 @@ public class PointCloudDrawer : MonoBehaviour
 
             is_slam_matrix_set = true;
             maybe_slam_matrix = maybe_slam_matrix.transpose;
-
-            //File.AppendAllText(@"C:\Users\sesa455926\Desktop\movieSlam2\poses.txt",
-            //        "" + current_frame + " pose is \n[" + maybe_slam_matrix.ToString() + "]\n"
-            //    );
-
-            //if (current_frame == 665)
-            //{
-            //    int array_size = 0;
-            //    var array_ptr =
-            //        SlamWrapper.get_3d_tracked_points(_slamSystem, ref array_size);
-
-            //    if (array_ptr.ToInt64() != 0 && array_size > 0)
-            //    {
-            //        var tracked3DPoints = new float[array_size];
-            //        Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
-            //        SlamWrapper.delete_pointer(array_ptr);
-
-            //        var points = new List<Vector3>();
-            //        for (int i = 0; i < tracked3DPoints.Length / 4; i++)
-            //        {
-            //            var x = tracked3DPoints[i * 4 + 0];
-            //            var y = tracked3DPoints[i * 4 + 1];
-            //            var z = tracked3DPoints[i * 4 + 2];
-            //            var isTracked = tracked3DPoints[i * 4 + 3] != 0 ? true : false;
-            //            points.Add(new Vector3(x, y, z));
-            //        }
-
-            //        var lines =
-            //            points
-            //            .Select((point) => "" + point.x + " " + point.y + " " + point.z)
-            //            .ToArray();
-
-            //        var path = @"C:\Users\sesa455926\Desktop\movieSlam2\mappoints.txt";
-            //        File.WriteAllLines(path, lines);
-            //    }
-            //}
         }
     }
 
@@ -925,10 +604,14 @@ public class PointCloudDrawer : MonoBehaviour
             var aruco_magnitude = bb_aruco.extents.magnitude;
             var slam_magnitude = bb_slam.extents.magnitude;
 
+
             if (slam_magnitude > 0.3f) // move to at least 0.3m to get a correct estimation
             {
                 float average = aruco_magnitude / slam_magnitude;
                 scale_factor = average;
+
+                Debug.LogWarning("aruco_magnitude is " + aruco_magnitude);
+                Debug.LogWarning("slam_magnitude is " + slam_magnitude);
                 return true;
             }
         }
