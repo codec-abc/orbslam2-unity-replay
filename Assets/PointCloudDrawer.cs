@@ -390,7 +390,7 @@ public class PointCloudDrawer : MonoBehaviour
                 _has_matrix = true;
             }
 
-            if (!_hasCreatePoints && _has_matrix)
+            if (!_hasCreatePoints && is_slam_matrix_set && _has_matrix)
             {
                 int array_size = 0;
 
@@ -403,7 +403,7 @@ public class PointCloudDrawer : MonoBehaviour
                     Marshal.Copy(array_ptr, tracked3DPoints, 0, array_size);
                     SlamWrapper.delete_pointer(array_ptr);
 
-                    var points = new List<Vector3>();
+                    var cloud_points_3d = new List<Vector3>();
                     for (int i = 0; i < tracked3DPoints.Length / 4; i++)
                     {
                         var x = tracked3DPoints[i * 4 + 0];
@@ -421,13 +421,84 @@ public class PointCloudDrawer : MonoBehaviour
                         var pos = _matrixFromSlamToAruco * pos_;
 
                         pos = pos / pos.w;
-                        points.Add(pos);
+                        cloud_points_3d.Add(pos);
                     }
 
                     Debug.LogWarning("creating point cloud");
-                    CreatePointCloudFromVector3dArray(points.ToArray());
+                    CreatePointCloudFromVector3dArray(cloud_points_3d.ToArray());
                     _hasCreatePoints = true;
-                    // TODO : try compute better scale factor
+
+                    var result = _matrixFromSlamToAruco * slam_matrix;
+                    ApplyPoseMatrix(result);
+
+                    var marker_points = ArucoTagDict10Id1PointList.GetPoints();
+
+                    // one block in the tag is 1.2 cm long.
+                    var markers_points_in_meters =
+                        marker_points.Select(pt => pt * 0.012f).ToList();
+
+                    var markers_points_screen_frame =
+                        markers_points_in_meters.Select(pt =>
+                        {
+                            var pt_3d = new Vector3(pt.x, pt.y, 0);
+                            var proj = _camera.WorldToScreenPoint(pt_3d);
+                            return new Vector2(proj.x, proj.y);
+                        }).ToList();
+
+                    var cloud_points_screen_frame =
+                        cloud_points_3d.Select(pt =>
+                        {
+                            var proj = _camera.WorldToScreenPoint(pt);
+                            return new Vector2(proj.x, proj.y);
+                        }).ToList();
+
+                    var dict = new Dictionary<int, int>();
+
+                    for (int i = 0; i < marker_points.Count; i++)
+                    {
+                        var pt_2d = marker_points[i];
+                        var pt_2d_projected = markers_points_screen_frame[i];
+                        
+                        var index = 
+                            FindClosest(pt_2d_projected, cloud_points_screen_frame);
+
+                        dict.Add(i, index);
+                    }
+                    
+                    var camera_position = _camera.transform.position;
+                    var keys = dict.Keys;
+                    var scale_factor_values = new List<float>();
+
+                    foreach(var key in keys)
+                    {
+                        var i = key;
+                        var index = dict[i];
+                        var point3d = cloud_points_3d[index];
+                        var delta = point3d - camera_position;
+                        var k = -camera_position.z / delta.z;
+                        scale_factor_values.Add(k);
+
+                        //var pt_2d = marker_points[i];
+                        //var pt_2d_in_m = markers_points_in_meters[i];
+                        //var pt_2d_projected = markers_points_screen_frame[i];
+                        //var point3d_projected = 
+                        //    cloud_points_screen_frame[index];
+                        //var distance = Vector2.Distance(pt_2d_projected, point3d_projected);
+                        //var height = (int) GetIntrinsics().Height;
+                        //Debug.DrawLine(pt_2d_in_m, point3d);
+                    }
+
+                    _scale_factor = scale_factor_values.Average();
+
+                    _matrixFromSlamToAruco = ComputeSlamToArucoMatrix(slam_matrix, aruco_mat, _scale_factor);
+                    _has_matrix = true;
+
+                    for (int i = 0; i < _root.transform.childCount; i++)
+                    {
+                        var current_child = _root.transform.GetChild(i);
+                        current_child.transform.position /= _scale_factor;
+                    }
+                    //Debug.LogError("pause");
                 }
             }
         }
@@ -445,6 +516,28 @@ public class PointCloudDrawer : MonoBehaviour
             current_frame++;
             current_frame = current_frame % _images.Count;
         }
+    }
+
+    private static int FindClosest
+    (
+        Vector2 pt_2d_projected, 
+        List<Vector2> cloud_points_screen_frame
+    )
+    {
+        var dist = 2.0f * Vector2.Distance(pt_2d_projected, cloud_points_screen_frame[0]);
+        var best_index = -1;
+        for (int i = 0; i < cloud_points_screen_frame.Count; i++)
+        {
+            var current_cloud_point_screen_frame = cloud_points_screen_frame[i];
+            var current_dist = Vector2.Distance(pt_2d_projected, current_cloud_point_screen_frame);
+
+            if (current_dist < dist)
+            {
+                dist = current_dist;
+                best_index = i;
+            }
+        }
+        return best_index;
     }
 
     private bool RunAruco(Mat rgbMat, ref Matrix4x4 aruco_matrix)
@@ -605,7 +698,7 @@ public class PointCloudDrawer : MonoBehaviour
             var slam_magnitude = bb_slam.extents.magnitude;
 
 
-            if (slam_magnitude > 0.3f) // move to at least 0.3m to get a correct estimation
+            if (slam_magnitude > 0.25f) // move to at least 0.3m to get a correct estimation
             {
                 float average = aruco_magnitude / slam_magnitude;
                 scale_factor = average;
@@ -781,6 +874,31 @@ public class PointCloudDrawer : MonoBehaviour
 
     public static class ArucoTagDict10Id1PointList
     {
+        // points of the tag 1 of the aruco dictionary 10 for size of 6x6 bits.
+        // https://docs.opencv.org/3.2.0/d5/dae/tutorial_aruco_detection.html
+        // https://docs.opencv.org/3.2.0/marker23.jpg
+        /*
+        
+        MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+        MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+        MMMMMMMMMMMMMMMMMMMMMMy-------:yMMMM
+        MMMMMMMMMMMMMMMMMMMMMMo        oMMMM
+        MMMMhooooMMMMhoooooooo-        oMMMM
+        MMMMo    MMMMo                 oMMMM
+        MMMMo    MMMMo             ::::yMMMM
+        MMMMo    MMMMo             MMMMMMMMM
+        MMMMo    MMMMo             MMMMMMMMM
+        MMMMo    MMMMMMMMMMMMMo        oMMMM
+        MMMMo    MMMMMMMMMMMMMo        oMMMM
+        MMMMo    MMMMMMMMMMMMMo    ddddmMMMM
+        MMMMo    MMMMMMMMMMMMMo    MMMMMMMMM
+        MMMMdoooooooohMMMMMMMMhoooooooohMMMM
+        MMMMMMMMM    oMMMMMMMMMMMMM    oMMMM
+        MMMMMMMMM::::yMMMMMMMMMMMMM::::yMMMM
+        MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+        MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+
+        */
         public static List<Vector2> GetPoints()
         {
             return new List<Vector2>()
